@@ -8,9 +8,11 @@
 
 可以直接copy目录内`RecordAppJsBridge.swift`使用，此文件为核心文件，其他文件都是没什么价值的；支持新开发WKWebView界面，或对已有的WKWebView实例升级支持RecordApp。
 
+**xcode测试项目clone后请修改`PRODUCT_BUNDLE_IDENTIFIER`，不然这个测试id被抢来抢去要闲置7天才能被使用，嫌弃苹果公司工程师水准**
+
 
 ## 【截图】
-![](../../assets/use_native_ios.gif)
+![](https://gitee.com/xiangyuecn/Recorder/raw/master/assets/use_native_ios.gif)
 
 
 ## 【限制】
@@ -34,6 +36,14 @@ swift收到js发起的prompt弹框请求，解析弹框携带的数据参数，�
 接口对应的方法使用的`AVAudioRecorder`来录音，`AVAudioRecorder`会把录音PCM数据写入到文件，因此我们实时从这个文件中读取出数据，然后定时调用`AppJsBridgeRequest.Record`把数据返回给js端即可完成完整的录音功能。
 
 可能是因为`AVAudioRecorder`存在文件写入缓存的原因，数据并非实时的flush到文件的，因此实时发送给js的数据存在300ms左右的滞后；`AudioQueue`、`AudioUnit`之类的更强大的工具文章又少，代码又多，本质上是因为不会用，所以就成这样了。
+
+
+## 需要权限
+在plist中配置麦克风的权限声明：`NSMicrophoneUsageDescription`。
+
+
+## 如何接入使用
+请阅读[RecordAppJsBridge.swift](https://github.com/xiangyuecn/Recorder/blob/master/app-support-sample/demo_ios/recorder/RecordAppJsBridge.swift)文件开头的注释文档，可直接copy此文件到你的项目中使用；支持新开发WKWebView界面，或对已有的WKWebView实例升级支持RecordApp。
 
 
 ## 为什么不用UserAgent来识别App环境

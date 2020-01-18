@@ -49,9 +49,7 @@ var onRecFn=window.NativeRecordReceivePCM=window.top.NativeRecordReceivePCM=func
 		sum+=Math.abs(s);
 	};
 	
-	var res=rec.envIn(pcm,sum);
-	//res为{ bf:buffers ,pl:powerLevel ,dt:duration ,sr:bufferSampleRate }
-	App.ReceivePCM(res.bf[res.bf.length-1],res.pl,res.dt,res.sr);
+	rec.envIn(pcm,sum);
 };
 
 
@@ -62,17 +60,26 @@ platform.RequestPermission=function(success,fail){
 };
 platform.Start=function(set,success,fail){
 	onRecFn.param=set;
-	onRecFn.rec=Recorder(set);//等待第一个数据到来再调用rec.start
+	var rec=Recorder(set);
+	rec.set.disableEnvInFix=true; //不要音频输入丢失补偿
+	
+	onRecFn.rec=rec;//等待第一个数据到来再调用rec.start
+	App.__Rec=rec;//rec在stop时需要即时清理，因此暴露的内部变量需另外赋值
 	
 	config.JsBridgeStart(set,success,fail);
 };
 platform.Stop=function(success,fail){
+	var failCall=function(msg){
+		fail(msg);
+		onRecFn.rec=null;
+		App.__Rec=null;
+	};
 	config.JsBridgeStop(function(){
 		var rec=onRecFn.rec;
 		onRecFn.rec=null;
 		
 		if(!rec){
-			fail("未开始录音");
+			failCall("未开始录音");
 			return;
 		};
 		
@@ -84,14 +91,20 @@ platform.Stop=function(success,fail){
 				onRecFn.param[k]=rec.set[k];
 			};
 		};
+		if(!success){
+			end();
+			failCall("仅清理资源");
+			return;
+		};
 		rec.stop(function(blob,duration){
 			console.log("rec encode end")
 			end();
 			success(blob,duration);
+			App.__Rec=null;
 		},function(msg){
 			end();
-			fail(msg);
+			failCall(msg);
 		});
-	},fail);
+	},failCall);
 };
 })();

@@ -10,7 +10,7 @@
 
 
 ## 【截图】
-![](../../assets/use_native_android.gif)
+![](https://gitee.com/xiangyuecn/Recorder/raw/master/assets/use_native_android.gif)
 
 
 ## 【限制】
@@ -33,6 +33,15 @@ java收到js发起的`RecordAppJsBridge.request`请求，解析请求数据参�
 接口对应的方法使用的`AudioRecord`来录音，`AudioRecord`使用稳健的44100采样率进行音频采集，我们实时接收PCM数据并进行采样率的转换，然后调用`AppJsBridgeRequest.Record`把数据返回给js端即可完成完整的录音功能。
 
 Android端的录音还算完美，比IOS的轻松很多。
+
+
+## 需要权限
+1. `android.permission.RECORD_AUDIO`
+2. `android.permission.MODIFY_AUDIO_SETTINGS`
+
+
+## 如何接入使用
+请阅读[RecordAppJsBridge.java](https://github.com/xiangyuecn/Recorder/blob/master/app-support-sample/demo_android/app/src/main/java/com/github/xianyuecn/recorder/RecordAppJsBridge.java)文件开头的注释文档，可直接copy此文件到你的项目中使用；支持新开发WebView界面，或对已有的WebView实例升级支持RecordApp。
 
 
 ## 为什么不用UserAgent来识别App环境

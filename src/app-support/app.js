@@ -9,7 +9,18 @@
 
 https://github.com/xiangyuecn/Recorder
 */
-(function(){
+(function(factory){
+	factory(window);
+	//umd returnExports.js
+	if(typeof(define)=='function' && define.amd){
+		define(function(){
+			return RecordApp;
+		});
+	};
+	if(typeof(module)=='object' && module.exports){
+		module.exports=RecordApp;
+	};
+}(function(window){
 "use strict";
 var IsWx=/MicroMessenger/i.test(navigator.userAgent);
 
@@ -41,6 +52,9 @@ var Config_SupportPlatforms=[
 			//不支持app原生录音
 			call(false);
 		}
+		,CanProcess:function(){
+			return true;//支持实时回调
+		}
 		,Config:{
 			IsApp:function(call){
 				//如需打开原生App支持，此方法【需实现】，此方法用来判断：1. 判断app是否是在环境中 2. app支持录音
@@ -54,7 +68,7 @@ var Config_SupportPlatforms=[
 				fail("JsBridgeRequestPermission未实现");
 			}
 			,JsBridgeStart:function(set,success,fail){
-				/*如需打开原生App支持，此方法【需实现】，app打开录音后原生层需定时回调ReceivePCM或这个方法的已封装好的方法。建议JsBridge增加一个Alive接口，为录音时定时心跳请求，如果网页超过10秒未调用此接口，app原生层自动停止录音，防止stop不能调用导致的资源泄露。
+				/*如需打开原生App支持，此方法【需实现】，app打开录音后原生层定时返回PCM数据时JsBridge js层需要回调set.onProcess。建议JsBridge增加一个Alive接口，为录音时定时心跳请求，如果网页超过10秒未调用此接口，app原生层自动停止录音，防止stop不能调用导致的资源泄露。
 					set:RecordApp.Start的set参数
 					success:fn() 打开录音时回调
 					fail:fn(errMsg) 开启录音出错时回调
@@ -86,6 +100,9 @@ var Config_SupportPlatforms=[
 			};
 			//如果是微信 就返回支持
 			call(IsWx);
+		}
+		,CanProcess:function(){
+			return false;//不支持实时回调
 		}
 		,Config:{
 			WxReady:function(call){
@@ -137,6 +154,9 @@ var Config_SupportPlatforms=[
 			//默认的始终要支持
 			call(true);
 		}
+		,CanProcess:function(){
+			return true;//支持实时回调
+		}
 		,Config:{
 			paths:[//当使用默认实现时，会自动把这些js全部加载，如果core和编码器已手动加载，可以把此数组清空；另外需要其他编码格式的时候，直接把编码引擎加在后面（不需要mp3格式就删掉），会自动加载
 				{url:BaseFolder+"recorder-core.js",check:function(){return !window.Recorder}}
@@ -158,26 +178,24 @@ var Weixin=Config_SupportPlatforms[1];
 var Default=Config_SupportPlatforms[2];
 //给Default实现统一接口
 Default.RequestPermission=function(success,fail){
+	var old=App.__Rec;
+	if(old){
+		old.close();
+		App.__Rec=null;
+	};
+	
 	var rec=Recorder();
 	rec.open(function(){
-		rec.close();
+		//rec.close(); keep stream Stop时再关，免得Start再次请求权限
 		success();
 	},fail);
 };
 Default.Start=function(set,success,fail){
 	var appRec=App.__Rec;
 	if(appRec!=null){
-		appRec.close();
+		appRec.close();//stream已经被使用过了，close更好
 	};
-	App.__Rec=appRec=Recorder({
-		type:set.type
-		,sampleRate:set.sampleRate
-		,bitRate:set.bitRate
-		
-		,onProcess:function(pcmData,powerLevel,duration,sampleRate){
-			App.ReceivePCM(pcmData[pcmData.length-1],powerLevel,duration,sampleRate);
-		}
-	});
+	App.__Rec=appRec=Recorder(set);
 	appRec.appSet=set;
 	appRec.open(function(){
 		appRec.start();
@@ -189,6 +207,12 @@ Default.Start=function(set,success,fail){
 Default.Stop=function(success,fail){
 	var appRec=App.__Rec;
 	if(!appRec){
+		if(Recorder.IsOpen()){
+			//释放检测权限时已打开的录音
+			appRec=Recorder();
+			appRec.open();
+			appRec.close();
+		};
 		fail("未开始录音");
 		return;
 	};
@@ -198,15 +222,22 @@ Default.Stop=function(success,fail){
 		for(var k in appRec.set){
 			appRec.appSet[k]=appRec.set[k];
 		};
+	};
+	
+	var stopFail=function(msg){
+		end();
+		fail(msg);
 		App.__Rec=null;
+	};
+	if(!success){
+		stopFail("仅清理资源");
+		return;
 	};
 	appRec.stop(function(blob,duration){
 		end();
 		success(blob,duration);
-	},function(msg){
-		end();
-		fail(msg);
-	});
+		App.__Rec=null;
+	},stopFail);
 };
 
 
@@ -221,7 +252,7 @@ Default.Stop=function(success,fail){
 
 
 var App={
-LM:"2019-4-23 14:51:14"
+LM:"2019-10-26 11:23:48"
 ,Current:0
 ,IsWx:IsWx
 ,BaseFolder:BaseFolder
@@ -261,23 +292,6 @@ LM:"2019-4-23 14:51:14"
 	load(0);
 }
 
-
-/*
-此方法由底层实现来调用，在开始录音后，底层如果能实时返还pcm数据，则会调用此方法
-pcmData:Int16[] 当前单声道录音缓冲PCM片段，正常情况下为上次回调本接口开始到现在的录音数据
-powerLevel,duration,sampleRate 和Recorder的onProcess相同
-*/
-,ReceivePCM:function(pcmData,powerLevel,duration,sampleRate){
-	if(App.OnProcess){
-		App.OnProcess([pcmData],powerLevel,duration,sampleRate);
-	};
-}
-
-
-
-//事件，需在使用的地方绑定一个函数，注意：新函数会覆盖旧的函数
-//参数和Recorder的onProcess相同，但pcmDatas[[int,...]]的数组长度始终为1
-//OnProcess:function(pcmDatas,powerLevel,duration,sampleRate){}
 
 
 
@@ -362,7 +376,17 @@ fail: fn(msg) 初始化失败
 
 
 /*
-请求录音权限，如果当前环境不支持录音或用户拒绝将调用错误回调，调用start前需先至少调用一次此方法
+获取底层平台录音过程中会使用用来处理实时数据的Recorder对象实例rec，如果底层录音过程中不实用Recorder进行数据的实时处理，将返回null。除了微信平台外，其他平台均会返回rec，但Start调用前和Stop调用后均会返回null，只有Start后和Stop彻底完成前之间才会返回rec。
+
+rec中的方法不一定都能使用，主要用来获取内部缓冲用的，比如实时清理缓冲。
+*/
+,GetStartUsedRecOrNull:function(){
+	return App.__Rec||null;
+}
+
+
+/*
+请求录音权限，如果当前环境不支持录音或用户拒绝将调用错误回调，调用start前需先至少调用一次此方法；请求权限后如果不使用了，不管有没有调用Start，至少要调用一次Stop来清理可能持有的资源。
 success:fn() 有权限时回调
 fail:fn(errMsg,isUserNotAllow) 没有权限或者不能录音时回调，如果是用户主动拒绝的录音权限，除了有错误消息外，isUserNotAllow=true，方便程序中做不同的提示，提升用户主动授权概率
 */
@@ -373,24 +397,25 @@ fail:fn(errMsg,isUserNotAllow) 没有权限或者不能录音时回调，如果�
 		
 		cur.RequestPermission(function(){
 			console.log("录音权限请求成功");
-			success();
+			success&&success();
 		},function(errMsg,isUserNotAllow){
 			console.log("录音权限请求失败："+errMsg+",isUserNotAllow:"+isUserNotAllow);
-			fail(errMsg,isUserNotAllow);
+			fail&&fail(errMsg,isUserNotAllow);
 		});
 	},function(err){
 		console.log("Install失败",err);
-		fail(err);
+		fail&&fail(err);
 	});
 }
 /*
 开始录音，需先调用RequestPermission
-注：如果对应的底层实现可以实时返回PCM数据，应调用相应RecordApp.ReceivePCM(pcmData,powerLevel,duration,sampleRate)方法。注意如果回调速率超过1秒10次，建议限制成一秒10次(可丢弃未回调数据)
+注：如果对应的底层实现可以实时返回PCM数据，Platform应调用set.onProcess方法。注意如果回调速率超过1秒10次，建议限制成一秒10次(可丢弃未回调数据)
 
 set：设置默认值：{
 	type:"mp3"//最佳输出格式，如果底层实现能够支持就应当优先返回此格式
 	sampleRate:16000//最佳采样率hz
 	bitRate:16//最佳比特率kbps
+	onProcess:NOOP //如果当前环境支持实时回调（RecordApp.Current.CanProcess()），接收到录音数据时的回调函数：fn(buffers,powerLevel,bufferDuration,bufferSampleRate)
 } 注意：此对象会被修改，因为平台实现时需要把实际使用的值存入此对象
 success:fn() 打开录音时回调
 fail:fn(errMsg) 开启录音出错时回调
@@ -398,7 +423,7 @@ fail:fn(errMsg) 开启录音出错时回调
 ,Start:function(set,success,fail){
 	var cur=App.Current;
 	if(!cur){
-		fail("需先调用RequestPermission");
+		fail&&fail("需先调用RequestPermission");
 		return;
 	};
 	set||(set={});
@@ -406,16 +431,17 @@ fail:fn(errMsg) 开启录音出错时回调
 		type:"mp3"
 		,sampleRate:16000
 		,bitRate:16
+		,onProcess:function(){}
 	};
 	for(var k in obj){
 		set[k]||(set[k]=obj[k]);
 	};
 	cur.Start(set,function(){
 		console.log("开始录音",set);
-		success();
+		success&&success();
 	},function(msg){
 		console.log("开始录音失败："+msg);
-		fail(msg);
+		fail&&fail(msg);
 	});
 }
 /*
@@ -426,20 +452,22 @@ success:fn(blob,duration)	结束录音时回调
 	duration:123 //音频持续时间
 	
 fail:fn(errMsg) 录音出错时回调
+
+本方法可以用来清理持有的资源，如果不提供success参数=null时，将不会进行音频编码操作，只进行清理完可能持有的资源后走fail回调
 */
 ,Stop:function(success,fail){
 	var cur=App.Current;
 	if(!cur){
-		fail("需先调用RequestPermission");
+		fail&&fail("需先调用RequestPermission");
 		return;
 	};
 	
-	cur.Stop(function(blob,duration){
+	cur.Stop(!success?null:function(blob,duration){
 		console.log("结束录音"+blob.size+"b "+duration+"ms",blob);
 		success(blob, duration);
 	},function(msg){
 		console.log("结束录音失败："+msg);
-		fail(msg);
+		fail&&fail(msg);
 	});
 }
 
@@ -449,4 +477,4 @@ window.RecordApp=App;
 
 OnInstalled&&OnInstalled();
 
-})();
+}));
